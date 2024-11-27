@@ -1,0 +1,42 @@
+name: "P6 GHA: Upgrade Dependencies for a CDK App"
+description: "P6 GHA: Upgrade Dependencies for a CDK App"
+author: "Philip M. Gollucci"
+inputs:
+  gh_token:
+    description: "GitHub Token"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4.2.2
+      with:
+        fetch-depth: 0
+        ref: main
+    - name: Node
+      uses: p6m7g8-actions/node-setup@main
+    - name: Update Dependencies
+      shell: bash
+      run: |
+        pnpm up --latest
+        echo "diff<<EOF" >> $GITHUB_ENV
+        git diff >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+    - name: Create Pull Request
+      id: create_pr
+      uses: peter-evans/create-pull-request@v7.0.5
+      with:
+        token: ${{ inputs.gh_token }}
+        commit-message: |
+          chore(deps): upgrade dependencies
+        branch: github-actions/upgrade-main
+        title: "chore(deps): upgrade dependencies"
+        labels: auto-merge
+        body: |
+          Upgrades project dependencies. The following changes were made:
+          ```diff
+          ${{ env.diff }}
+          ```
+        author: github-actions <github-actions@github.com>
+        committer: github-actions <github-actions@github.com>
+        signoff: true
