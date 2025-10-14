@@ -20,6 +20,8 @@ runs:
       run: |
         pnpm up --latest
     - name: Get Dependency Diff
+      shell: bash
+      run: |
         git diff
     - name: Create Pull Request
       id: create_pr
