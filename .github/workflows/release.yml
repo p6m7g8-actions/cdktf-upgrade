@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+      - name: Bump Version
+        id: bump
+        if: ${{ !contains(github.event.head_commit.message, 'chore(release):') }}
+        shell: bash
+        run: |
+          set -x
+          latest_tag=$(git tag --list "v*" --sort=-v:refname | head -1)
+          if [ -z "$latest_tag" ]; then
+            major=0
+            minor=0
+            patch=0
+            log_lines=$(git log --pretty="format:- %s")
+          else
+            log_lines=$(git log $latest_tag..HEAD --pretty="format:- %s")
+            major=$(echo $latest_tag | cut -d. -f1 | sed -e 's,^v,,')
+            minor=$(echo $latest_tag | cut -d. -f2)
+            patch=$(echo $latest_tag | cut -d. -f3)
+          fi
+
+          if echo "$log_lines" | grep -q "BREAKING CHANGE"; then
+            major=$((major + 1))
+            minor=0
+            patch=0
+          elif echo "$log_lines" | grep -q "major"; then
+            major=$((major + 1))
+            minor=0
+            patch=0
+          elif echo "$log_lines" | grep -q "feat"; then
+            minor=$((minor + 1))
+            patch=0
+          elif echo "$log_lines" | grep -q "fix"; then
+            patch=$((patch + 1))
+          elif echo "$log_lines" | grep -v "chore(release):" | grep -q "chore"; then
+            patch=$((patch + 1))
+          else
+            true
+          fi
+
+          new_tag="v$major.$minor.$patch"
+          mkdir -p dist/
+          cp action.yml dist/
+          printf '%s\n' "$new_tag" > dist/releasetag.txt
+          printf '%s\n' "$log_lines" | grep -v 'chore(release):' > dist/changelog.md
+          printf 'Semantic version tag: %s -> %s\n' "${latest_tag:-none}" "$new_tag"
+          printf 'ChangeLog:\n'
+          cat dist/changelog.md
+
+          if grep -E "^- (chore|fix|feat|major)\!*" dist/changelog.md; then
+            echo "bump=true" >> $GITHUB_OUTPUT
+          else
+            echo "bump=false" >> $GITHUB_OUTPUT
+          fi
+          set +x
+      - name: Github Release
+        if: ${{ steps.bump.outputs.bump == 'true' && !contains(github.event.head_commit.message, 'chore(release):') }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.P6_A_GH_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          set -x
+          tag_name=$(cat dist/releasetag.txt)
+          if gh release view "$tag_name" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release with tag $tag_name already exists. Skipping release creation."
+          else
+            gh release create "$tag_name" -R "$GITHUB_REPOSITORY" -F dist/changelog.md -t "$tag_name" --target "$GITHUB_REF"
+            echo "Release with tag $tag_name created successfully."
+          fi
