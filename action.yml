@@ -19,9 +19,8 @@ runs:
       shell: bash
       run: |
         pnpm up --latest
-        echo "diff<<EOF" >> $GITHUB_ENV
-        git diff >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
+    - name: Get Dependency Diff
+        git diff
     - name: Create Pull Request
       id: create_pr
       uses: peter-evans/create-pull-request@v7.0.8
@@ -33,10 +32,7 @@ runs:
         title: "chore(deps): upgrade dependencies"
         labels: auto-merge
         body: |
-          Upgrades project dependencies. The following changes were made:
-          ```diff
-          ${{ env.diff }}
-          ```
+          Upgrades project dependencies.
         author: github-actions <github-actions@github.com>
         committer: github-actions <github-actions@github.com>
         signoff: true
