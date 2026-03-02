@@ -54,7 +54,7 @@ runs:
       if: steps.create_pr.outputs.pull-request-number != ''
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.gh_token }}
+        GH_TOKEN: ${{ inputs.gh_token || github.token }}
       run: |
         pr="${{ steps.create_pr.outputs.pull-request-number }}"
         repo="${{ github.repository }}"
