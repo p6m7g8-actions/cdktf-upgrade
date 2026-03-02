@@ -23,11 +23,17 @@ runs:
       shell: bash
       run: |
         git diff
+    - name: Normalize GitHub token
+      id: token
+      uses: p6m7g8-actions/gh-token-normalize@main
+      with:
+        preferred-token: ${{ inputs.gh_token }}
+        default-token: ${{ github.token }}
     - name: Create Pull Request
       id: create_pr
       uses: peter-evans/create-pull-request@v8.1.0
       with:
-        token: ${{ inputs.gh_token }}
+        token: ${{ steps.token.outputs.value }}
         commit-message: |
           chore(deps): upgrade dependencies
         branch: github-actions/upgrade-main
