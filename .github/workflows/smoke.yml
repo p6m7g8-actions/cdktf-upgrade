@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: p6m7g8-actions/checkout@main
+        uses: p6m7g8-actions/gh-repo-checkout@main
       - name: Smoke
         shell: bash
         run: echo "smoke ok"
