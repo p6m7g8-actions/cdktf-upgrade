@@ -51,8 +51,18 @@ runs:
           p6m7g8-automation
         body: |
           Upgrades project dependencies.
-        author: github-actions <github-actions@github.com>
-        committer: github-actions <github-actions@github.com>
+        # Every target enforces `required_signatures`, and a commit made by
+        # `git commit` on a runner has no key. Unsigned upgrade PRs were rejected
+        # by the merge queue with "Commits must have verified signatures" and sat
+        # open for months; the batch from 2026-03-03 never had a chance.
+        #
+        # `sign-commits` makes the action create the commit through the GitHub
+        # API, which signs it. It only works with GITHUB_TOKEN or a GitHub App
+        # token -- with a PAT the PR is still created but the commits are
+        # silently NOT signed. That is why the token above resolves to
+        # `github.token`, and why `author`/`committer` are gone: upstream ignores
+        # both when signing.
+        sign-commits: true
         signoff: true
     - name: Re-label PR with automation token
       if: steps.create_pr.outputs.pull-request-number != ''
@@ -64,3 +74,29 @@ runs:
       run: |
         gh api -X DELETE "repos/${REPO}/issues/${PR}/labels/auto-approve" || true
         gh api "repos/${REPO}/issues/${PR}/labels" -f labels[]='auto-approve'
+
+    # Signing forces GITHUB_TOKEN, and GitHub deliberately does not dispatch
+    # workflows for events raised by it. So a signed upgrade PR gets NO
+    # `build`, `Lint PR title`, or `claude-review` -- all three are required, so
+    # it is blocked on missing checks instead of on signatures. Verified on
+    # p6m7g8/p6-domain-records: bot PR #185 had only `Summary`, while #184 from
+    # a user token one day earlier had the full suite.
+    #
+    # Closing and reopening with the automation PAT raises a `reopened` event
+    # from a non-GITHUB_TOKEN identity, which does dispatch. Every build template
+    # accepts `reopened`, either explicitly or via the `pull_request` defaults.
+    #
+    # The proper fix is a GitHub App token, which both signs and dispatches.
+    # This is the workaround until one exists.
+    - name: Fire required checks the signed PR cannot trigger itself
+      if: steps.create_pr.outputs.pull-request-number != '' && inputs.gh_token != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh_token }}
+      run: |
+        set -euo pipefail
+        pr="${{ steps.create_pr.outputs.pull-request-number }}"
+        repo="${{ github.repository }}"
+        echo "::notice::$repo#$pr: reopening with the automation token so required checks dispatch"
+        gh pr close "$pr" --repo "$repo"
+        gh pr reopen "$pr" --repo "$repo"
