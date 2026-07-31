@@ -9,12 +9,12 @@ runs:
   using: "composite"
   steps:
     - name: Checkout code
-      uses: p6m7g8-actions/checkout@main
+      uses: p6m7g8-actions/gh-repo-checkout@main
       with:
         fetch-depth: 0
         ref: main
     - name: Node
-      uses: p6m7g8-actions/node-setup@main
+      uses: p6m7g8-actions/p6-node-setup@main
     - name: Update Dependencies
       shell: bash
       run: |
@@ -25,7 +25,7 @@ runs:
         git diff
     - name: Normalize GitHub token
       id: token
-      uses: p6m7g8-actions/gh-token-normalize@main
+      uses: p6m7g8-actions/gh-token-resolve@main
       with:
         # gh-token-normalize returns the first non-empty slot. github.token is
         # always non-empty, so it must not sit in preferred-token or the
