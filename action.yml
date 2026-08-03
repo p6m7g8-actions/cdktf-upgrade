@@ -5,6 +5,12 @@ inputs:
   gh_token:
     description: "Automation token used to trigger auto-approve events (P6_A_GH_TOKEN)"
     required: true
+  hold_dependencies:
+    description: >-
+      Space-separated packages whose package.json range must survive the
+      upgrade. See the Update Dependencies step for why typescript is held.
+    required: false
+    default: "typescript"
 runs:
   using: "composite"
   steps:
@@ -17,8 +23,49 @@ runs:
       uses: p6m7g8-actions/p6-node-setup@main
     - name: Update Dependencies
       shell: bash
+      env:
+        HOLD: ${{ inputs.hold_dependencies }}
       run: |
+        set -euo pipefail
+
+        # `pnpm up --latest` ignores package.json ranges by design, and pnpm has
+        # no dependency-name exclusion: the `!` negation in `pnpm up --help` is
+        # `--filter` only, which selects workspace packages, not dependencies.
+        # So snapshot the declared ranges, upgrade, then put the held ones back
+        # and let pnpm re-resolve the lockfile.
+        #
+        # `typescript` is held by default because the 2026-08-02 run of the
+        # sibling `p6-cdk-upgrade`, which runs the same command, bumped it
+        # 5.9.3 to 7.0.2 and broke `build` in 7 repos two ways:
+        # `@typescript-eslint` 8.65.0 exits 2 with "typescript-eslint does not
+        # support TS 7.0", and ts-node throws on `fileExists`. Verified on
+        # p6-domains that holding typescript alone, with every other upgrade
+        # applied, makes `pnpm run build` pass. Drop this default once the
+        # eslint toolchain supports TS 7.
+        before="$(mktemp)"
+        cp package.json "$before"
+
         pnpm up --latest
+
+        if [ -n "${HOLD//[[:space:]]/}" ]; then
+          read -ra hold <<< "$HOLD"
+          for pkg in "${hold[@]}"; do
+            range="$(jq -r --arg p "$pkg" \
+              '.dependencies[$p] // .devDependencies[$p] // empty' "$before")"
+            if [ -z "$range" ]; then
+              echo "::notice::${pkg} not declared; nothing to hold"
+              continue
+            fi
+            patched="$(mktemp)"
+            jq --arg p "$pkg" --arg r "$range" \
+              'if .dependencies[$p] then .dependencies[$p] = $r
+               else .devDependencies[$p] = $r end' \
+              package.json > "$patched"
+            mv "$patched" package.json
+            echo "::notice::held ${pkg} at ${range}"
+          done
+          pnpm install --no-frozen-lockfile
+        fi
     - name: Get Dependency Diff
       shell: bash
       run: |
