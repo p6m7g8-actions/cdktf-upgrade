@@ -7,8 +7,9 @@ inputs:
     required: true
   hold_dependencies:
     description: >-
-      Space-separated packages whose package.json range must survive the
-      upgrade. See the Update Dependencies step for why typescript is held.
+      Packages whose package.json range must survive the upgrade, separated by
+      spaces, newlines, or both. See the Update Dependencies step for why
+      typescript is held.
     required: false
     default: "typescript"
 runs:
@@ -48,23 +49,40 @@ runs:
         pnpm up --latest
 
         if [ -n "${HOLD//[[:space:]]/}" ]; then
-          read -ra hold <<< "$HOLD"
+          # `hold_dependencies: |` with one package per line is the dominant
+          # Actions idiom, and `read -ra` consumes only the first line. Flatten
+          # newlines to spaces first so every entry is split, not just line one.
+          read -ra hold <<< "${HOLD//$'\n'/ }"
+          held=0
           for pkg in "${hold[@]}"; do
+            # optionalDependencies must be searched too: omitting it made a
+            # package declared only there report "nothing to hold" while
+            # `pnpm up --latest` upgraded it anyway.
             range="$(jq -r --arg p "$pkg" \
-              '.dependencies[$p] // .devDependencies[$p] // empty' "$before")"
+              '.dependencies[$p] // .devDependencies[$p]
+               // .optionalDependencies[$p] // empty' "$before")"
             if [ -z "$range" ]; then
               echo "::notice::${pkg} not declared; nothing to hold"
               continue
             fi
             patched="$(mktemp)"
+            # Name every section explicitly. A bare `else .devDependencies[$p]`
+            # fallback CREATED a devDependencies entry for optionalDependencies
+            # packages, silently relocating them.
             jq --arg p "$pkg" --arg r "$range" \
               'if .dependencies[$p] then .dependencies[$p] = $r
-               else .devDependencies[$p] = $r end' \
+               elif .devDependencies[$p] then .devDependencies[$p] = $r
+               else .optionalDependencies[$p] = $r end' \
               package.json > "$patched"
             mv "$patched" package.json
+            held=$((held + 1))
             echo "::notice::held ${pkg} at ${range}"
           done
-          pnpm install --no-frozen-lockfile
+          # Nothing was rewritten if no held package was declared, so the
+          # lockfile `pnpm up --latest` already wrote is correct as-is.
+          if [ "$held" -gt 0 ]; then
+            pnpm install --no-frozen-lockfile
+          fi
         fi
     - name: Get Dependency Diff
       shell: bash
